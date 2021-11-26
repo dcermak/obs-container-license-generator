@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -eoux pipefail
+
+PACKAGES_FILE=$(find . -wholename '*KIWI/*.packages' -o -wholename '*DOCKER/*.packages' -type f)
+if [[ ${PACKAGES_FILE} = "" ]]; then
+    exit 0
+fi
+RES_DIR=$(dirname ${PACKAGES_FILE})
+CONTAINER=$(ls ${RES_DIR}/*.tar)
+
+EXISTING_LICENSE_LABEL=$(skopeo inspect docker-archive:${CONTAINER}| jq ' .Labels["org.opencontainers.image.licenses"] ')
+if [[ "${EXISTING_LICENSE_LABEL}" != "null" ]]; then
+    echo "org.opencontainers.image.licenses label already present: ${EXISTING_LICENSE_LABEL}"
+    echo "Not modifying it"
+    exit 0
+fi
+
+readarray -t licenses <<<"$(cat ${RES_DIR}/*.packages|awk -F'|' '{print $7}'|sort|uniq)"
+
+len=$(expr "${#licenses[@]}" - 1)
+
+function surround_licenses () {
+    if [[ $1 =~ ' ' ]]; then
+        echo -n "($1)";
+    else
+        echo -n "$1";
+    fi
+}
+
+function license_combination_expr() {
+    for i in $(seq 0 $(expr "${len}" - 1)); do
+        surround_licenses "${licenses[$i]}"
+        echo -n " AND "
+    done
+
+    surround_licenses "${licenses[$len]}"
+}
+LICENSE_EXPR=$(license_combination_expr)
+
+mkdir -p /tmp/container-add/
+skopeo copy "docker-archive:${CONTAINER}" dir:/tmp/container-add/
+
+DIGEST=$(jq '.config.digest' /tmp/container-add/manifest.json)
+
+DIGEST_FILE=$(echo ${DIGEST} | sed 's/\"//g' | awk -F ":" '{print $2}')
+DIGEST_PATH="/tmp/container-add/${DIGEST_FILE}"
+
+NEW_DIGEST=`jq ".config.Labels += { \"org.opencontainers.image.licenses\": \"${LICENSE_EXPR}\" } " < $DIGEST_PATH`
+echo "$NEW_DIGEST" > "$DIGEST_PATH"
+
+NEW_DIGEST_HASH=$(sha256sum $DIGEST_PATH |awk '{print $1}')
+
+mv $DIGEST_PATH "/tmp/container-add/$NEW_DIGEST_HASH"
+NEW_SIZE=$(stat --format "%s" "/tmp/container-add/$NEW_DIGEST_HASH")
+
+NEW_MANIFEST=`jq " .config.digest = \"sha256:${NEW_DIGEST_HASH}\" | .config.size = ${NEW_SIZE} " < /tmp/container-add/manifest.json`
+echo $NEW_MANIFEST > /tmp/container-add/manifest.json
+
+rm -f "${CONTAINER}"
+skopeo copy dir:/tmp/container-add/ docker-archive:${CONTAINER}
