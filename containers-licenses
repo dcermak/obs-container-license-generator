@@ -2,6 +2,9 @@
 
 set -eoux pipefail
 
+# the build results including the .tar image of the container are either in the
+# KIWI or DOCKER directory, but we must search for this explicitly, because kiwi
+# builds also create a tar.xz file in the KIWI-docker subdir
 PACKAGES_FILE=$(find . -wholename '*KIWI/*.packages' -o -wholename '*DOCKER/*.packages' -type f)
 if [[ ${PACKAGES_FILE} = "" ]]; then
     exit 0
@@ -9,6 +12,8 @@ fi
 RES_DIR=$(dirname "${PACKAGES_FILE}")
 CONTAINER=$(ls "${RES_DIR}"/*.tar)
 
+# if the container image already has the 'org.opencontainers.image.licenses' set
+# to something, then we will just exit and assume they know what they are doing
 EXISTING_LICENSE_LABEL=$(skopeo inspect docker-archive:"${CONTAINER}"| jq ' .Labels["org.opencontainers.image.licenses"] ')
 if [[ "${EXISTING_LICENSE_LABEL}" != "null" ]]; then
     echo "org.opencontainers.image.licenses label already present: ${EXISTING_LICENSE_LABEL}"
@@ -16,11 +21,18 @@ if [[ "${EXISTING_LICENSE_LABEL}" != "null" ]]; then
     exit 0
 fi
 
+# the .packages file has the following lines:
+# busybox-adduser|(none)|1.34.1|19.6|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/6821beec79e980978d3097e149416c90-busybox-links|GPL-2.0-or-later
+# => the license is the last entry
+# => collect all of them, get the unique list and store it in an array
 readarray -t licenses <<<"$(cat "${RES_DIR}"/*.packages|awk -F'|' '{print $7}'|sort|uniq)"
 
-
+# actual number of licenses
 len=$(("${#licenses[@]}" - 1))
 
+# echos the first parameter surrounded by braces if it contains spaces.
+# e.g.: surround_licenses "AGPL AND GPL" => "(AGPL AND GPL)"
+#       surround_licenses "GPL" => "GPL"
 function surround_licenses () {
     if [[ $1 =~ ' ' ]]; then
         echo -n "($1)";
@@ -29,6 +41,9 @@ function surround_licenses () {
     fi
 }
 
+# outputs the full combination of the licenses with AND in between them and
+# multiple licenses surrounded by braces
+# => this will be used to populate the org.opencontainers.image.licenses entry
 function license_combination_expr() {
     for i in $(seq 0 $(("${len}" - 1))); do
         surround_licenses "${licenses[$i]}"
@@ -39,24 +54,52 @@ function license_combination_expr() {
 }
 LICENSE_EXPR=$(license_combination_expr)
 
+# modify the container by first dumping it out to /tmp/container-add
+#
+# skopeo creates a manifest.json in there, which contains the information
+# about the dumped data. Here we care about the following part:
+# {
+#   // snip
+#   "config": {
+#     "mediaType": "application/vnd.docker.container.image.v1+json",
+#     "size": 2244,
+#     "digest": "sha256:3e4f08443a5e7cf639a687a46244c8265b3111fff30174567792ca32a2241500"
+#   },
+# }
+# This gives us the hash of the file containing the container's metadata,
+# including the labels.
+# => find it as /tmp/container-add/$hash
+# We read that file in, add the label and write it back with 2 catches:
+# 1. the hash is different
+# 2. the size is different
+# => recalculate both, write the new file metadata, modify manifest.json and let
+# skopeo recreate the tar archive
 mkdir -p /tmp/container-add/
 skopeo copy "docker-archive:${CONTAINER}" dir:/tmp/container-add/
 
+# DIGEST="sha256:$hash"
 DIGEST=$(jq '.config.digest' /tmp/container-add/manifest.json)
 
 DIGEST_FILE=$(echo "${DIGEST}" | sed 's/\"//g' | awk -F ":" '{print $2}')
 DIGEST_PATH="/tmp/container-add/${DIGEST_FILE}"
 
+# here we add the licenses into the metadata
 NEW_DIGEST=$(jq ".config.Labels += { \"org.opencontainers.image.licenses\": \"${LICENSE_EXPR}\" } " < "$DIGEST_PATH")
+# new metadata at the *wrong* location
 echo "$NEW_DIGEST" > "$DIGEST_PATH"
 
+# hash has changed => calculate the new one and rename the file
 NEW_DIGEST_HASH=$(sha256sum "$DIGEST_PATH" |awk '{print $1}')
-
 mv "$DIGEST_PATH" "/tmp/container-add/$NEW_DIGEST_HASH"
+
+# get the new size of the metadata
 NEW_SIZE=$(stat --format "%s" "/tmp/container-add/$NEW_DIGEST_HASH")
 
+# replace the hash & size of the metadata in manifest.json
 NEW_MANIFEST=$(jq " .config.digest = \"sha256:${NEW_DIGEST_HASH}\" | .config.size = ${NEW_SIZE} " < /tmp/container-add/manifest.json)
 echo "$NEW_MANIFEST" > /tmp/container-add/manifest.json
 
+# remove the old archive before writing back, otherwise skopeo will complain
+# that it cannot modify existing docker archives
 rm -f "${CONTAINER}"
 skopeo copy dir:/tmp/container-add/ docker-archive:"${CONTAINER}"
