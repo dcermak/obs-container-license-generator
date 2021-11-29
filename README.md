@@ -18,7 +18,20 @@ value, provided that:
    images called `containers-licenses`.
 
 2. Copy the `containers-licenses` and `containers-licenses.spec` into the
-   package and commit the package.
+   package and commit the package. Alternatively you can also use the following
+   `_service` file to automate this process:
+```xml
+<services>
+  <service name="obs_scm">
+    <param name="url">https://github.com/dcermak/obs-containers-licenses.git</param>
+    <param name="scm">git</param>
+    <param name="extract">containers-licenses</param>
+    <param name="extract">containers-licenses.spec</param>
+    <param name="exclude">root</param>
+    <param name="revision">main</param>
+  </service>
+</services>
+```
 
 3. Add the following line to your project configuration (you probably want to
    add it only to the repository where you build your containers):
