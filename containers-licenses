@@ -26,10 +26,10 @@ fi
 # => the license is the last entry
 # => collect all of them, get the unique list and store it in an array
 # omit lines that are just a "pubkey" entry, these are the invalid licenses from the public keys
-readarray -t licenses <<<"$(cat "${RES_DIR}"/*.packages|awk -F'|' '{print $7}'|sed '/^pubkey$/d'|sort|uniq)"
+readarray -t licenses <<<"$(cat "${RES_DIR}"/*.packages|awk -F'|' '{print $7}'|sed -e '/^pubkey$/d' -e '/^$/d'|sort|uniq)"
 
 # actual number of licenses
-len=$(("${#licenses[@]}" - 1))
+len="${#licenses[@]}"
 
 # echos the first parameter surrounded by braces if it contains spaces.
 # e.g.: surround_licenses "AGPL AND GPL" => "(AGPL AND GPL)"
@@ -46,12 +46,12 @@ function surround_licenses () {
 # multiple licenses surrounded by braces
 # => this will be used to populate the org.opencontainers.image.licenses entry
 function license_combination_expr() {
-    for i in $(seq 0 $(("${len}" - 1))); do
+    for i in $(seq 0 $(("${len}" - 2))); do
         surround_licenses "${licenses[$i]}"
         echo -n " AND "
     done
 
-    surround_licenses "${licenses[$len]}"
+    surround_licenses "${licenses[$(("${len}" - 1))]}"
 }
 LICENSE_EXPR=$(license_combination_expr)
 
