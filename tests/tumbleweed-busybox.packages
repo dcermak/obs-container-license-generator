@@ -61,3 +61,5 @@ system-user-nobody|(none)|20170617|24.1|noarch|obs://build.opensuse.org/openSUSE
 system-user-root|(none)|20190513|1.36|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/338740bedeaffdf9b2e6891ad9924dd1-system-user-root|MIT
 sysuser-shadow|(none)|3.1|3.2|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/94e7b7d8b752fdf828ecc22950ed3a61-sysuser-tools|MIT
 update-alternatives|(none)|1.20.9|1.2|i586|obs://build.opensuse.org/openSUSE:Factory/standard/2a67fffb1fe5f6d3427658a5ab7f6d50-update-alternatives|GPL-2.0-or-later
+gpg-pubkey|(none)|307e3d54|5aaa90a5|(none)|(none)|pubkey
+gpg-pubkey|(none)|39db7c82|5f68629b|(none)|(none)|pubkey

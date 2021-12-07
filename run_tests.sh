@@ -31,6 +31,10 @@ function run_test_without_label() {
     $1/containers-licenses
 
     LABELS=$(skopeo inspect docker-archive:/tmp/test/KIWI/busybox.tar | jq ' .Labels["org.opencontainers.image.licenses"]')
+    if [[ "${LABELS}" =~ pubkey ]]; then
+        echo "Labels contain the 'pubkey' license: '${LABELS}'"
+        exit 1
+    fi
     [[ "${LABELS}"  = "\"Apache-2.0 AND (BSD-2-Clause AND LGPL-2.1-or-later AND BSD-3-Clause AND SUSE-Public-Domain) AND BSD-3-Clause AND GPL-2.0-or-later AND (GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0) AND LGPL-2.1-or-later AND MIT AND SUSE-Public-Domain\"" ]] || (echo "got unexpected label ${LABELS}"; exit 1)
 
     popd

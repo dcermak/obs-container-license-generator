@@ -25,7 +25,8 @@ fi
 # busybox-adduser|(none)|1.34.1|19.6|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/6821beec79e980978d3097e149416c90-busybox-links|GPL-2.0-or-later
 # => the license is the last entry
 # => collect all of them, get the unique list and store it in an array
-readarray -t licenses <<<"$(cat "${RES_DIR}"/*.packages|awk -F'|' '{print $7}'|sort|uniq)"
+# omit lines that are just a "pubkey" entry, these are the invalid licenses from the public keys
+readarray -t licenses <<<"$(cat "${RES_DIR}"/*.packages|awk -F'|' '{print $7}'|sed '/^pubkey$/d'|sort|uniq)"
 
 # actual number of licenses
 len=$(("${#licenses[@]}" - 1))
