@@ -23,6 +23,7 @@ Summary:        Service for inserting the licenses into a container label
 License:        GPL-3.0-or-later
 URL:            https://github.com/dcermak/obs-%{name}
 Source0:        %{name}
+Source1:        README.md
 Requires:       /usr/bin/sed
 Requires:       /usr/bin/awk
 Requires:       /bin/bash
@@ -37,7 +38,7 @@ This service can be used during buildtime to extract the licenses from OBS
 
 %prep
 %setup -q -D -T -n .
-# cp %%{SOURCE2} .
+cp %{SOURCE1} .
 
 %build
 
@@ -48,5 +49,6 @@ install -m 0755 %{SOURCE0} %{buildroot}%{_prefix}/lib/build/post-build-checks/
 %files
 %dir %{_prefix}/lib/build/post-build-checks/
 %{_prefix}/lib/build/post-build-checks/%{name}
+%doc README.md
 
 %changelog

@@ -20,10 +20,11 @@ correctly.
 ```xml
 <services>
   <service name="obs_scm">
-    <param name="url">https://github.com/dcermak/container-license-generator.git</param>
+    <param name="url">https://github.com/dcermak/obs-container-license-generator.git</param>
     <param name="scm">git</param>
     <param name="extract">container-license-generator</param>
     <param name="extract">container-license-generator.spec</param>
+    <param name="extract">README.md</param>
     <param name="exclude">root</param>
     <param name="revision">main</param>
   </service>
