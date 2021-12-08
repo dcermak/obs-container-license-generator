@@ -1,3 +1,21 @@
+#!/usr/bin/env python3
+
+from dataclasses import dataclass, field
+from tempfile import TemporaryDirectory
+from typing import Dict, Optional, Tuple, Union
+import os.path
+from pathlib import Path
+from shutil import copy
+from subprocess import PIPE, check_output
+import json
+import shlex
+
+
+CONTAINER_LICENSE_GENERATOR_BINARY = (
+    Path(os.path.abspath(os.path.dirname(__file__))) / "container-license-generator"
+)
+
+TUMBLEWEED_BUSYBOX_DOT_PACKAGES = """
 busybox-adduser|(none)|1.34.1|19.6|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/6821beec79e980978d3097e149416c90-busybox-links|GPL-2.0-or-later
 busybox-attr|(none)|1.34.1|19.6|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/6821beec79e980978d3097e149416c90-busybox-links|GPL-2.0-or-later
 busybox-bc|(none)|1.34.1|19.6|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/6821beec79e980978d3097e149416c90-busybox-links|GPL-2.0-or-later
@@ -63,3 +81,173 @@ sysuser-shadow|(none)|3.1|3.2|noarch|obs://build.opensuse.org/openSUSE:Factory/s
 update-alternatives|(none)|1.20.9|1.2|i586|obs://build.opensuse.org/openSUSE:Factory/standard/2a67fffb1fe5f6d3427658a5ab7f6d50-update-alternatives|GPL-2.0-or-later
 gpg-pubkey|(none)|307e3d54|5aaa90a5|(none)|(none)|pubkey
 gpg-pubkey|(none)|39db7c82|5f68629b|(none)|(none)|pubkey
+"""
+
+
+def run_cmd(cmd: str, cwd: Optional[Union[str, Path]] = None) -> str:
+    return check_output(shlex.split(cmd), cwd=cwd, stderr=PIPE).decode().strip()
+
+
+@dataclass
+class ContainerTest:
+    container_archive: Path
+    files: Dict[str, Union[str, Path]] = field(default_factory=dict)
+    expected_licenses: str = ""
+
+    _tempdir: Optional[TemporaryDirectory] = None
+
+    def __post_init__(self):
+        assert self._tempdir is None
+        self._tempdir = TemporaryDirectory()
+
+        tmp = Path(self._tempdir.name)
+        for path, contents in self.files.items():
+            dest = tmp / Path(path)
+            (tmp / Path(os.path.dirname(path))).mkdir(parents=True, exist_ok=True)
+            if isinstance(contents, str):
+                with open(dest, "w") as f:
+                    f.write(contents)
+            else:
+                copy(contents, dest)
+
+    def run_test(self):
+        assert self._tempdir is not None
+        check_output(CONTAINER_LICENSE_GENERATOR_BINARY, cwd=self._tempdir.name)
+
+        metadata = json.loads(
+            run_cmd(
+                f"skopeo inspect docker-archive:{str(Path(self._tempdir.name) / self.container_archive)}",
+            )
+        )
+
+        licenses = metadata["Labels"]["org.opencontainers.image.licenses"]
+
+        assert (
+            "pubkey" not in licenses
+        ), f"unexpected license 'pubkey' in in '{licenses}'"
+        assert (
+            licenses == self.expected_licenses
+        ), f"""expected the following licenses:
+{self.expected_licenses}
+but got:
+{licenses}
+"""
+
+    def cleanup(self):
+        assert self._tempdir is not None
+        self._tempdir.cleanup()
+
+
+def prepare_container_archives(tempdir: str) -> Tuple[Path, Path, Path]:
+    dockerfile_path = Path(tempdir) / "Dockerfile"
+    busybox_tar = Path(tempdir) / "busybox.tar"
+    busybox_with_single_label_tar = Path(tempdir) / "busybox_with_single_label.tar"
+    busybox_with_multiple_labels_tar = (
+        Path(tempdir) / "busybox_with_multiple_labels.tar"
+    )
+
+    run_cmd("podman pull registry.opensuse.org/opensuse/busybox:latest", tempdir)
+    run_cmd(
+        f"skopeo copy containers-storage:registry.opensuse.org/opensuse/busybox:latest docker-archive:/{busybox_tar}",
+        tempdir,
+    )
+
+    with open(dockerfile_path, "w") as dockerfile:
+        dockerfile.write(
+            """FROM registry.opensuse.org/opensuse/busybox:latest
+
+LABEL org.opencontainers.image.licenses "CC-BY-NC-4.0"
+"""
+        )
+    run_cmd(
+        f"buildah bud --layers -t busybox_label_test -f {dockerfile_path}",
+        tempdir,
+    )
+    run_cmd(
+        f"skopeo copy containers-storage:localhost/busybox_label_test docker-archive:/{busybox_with_single_label_tar}",
+        tempdir,
+    )
+    with open(dockerfile_path, "w") as dockerfile:
+        dockerfile.write(
+            """FROM registry.opensuse.org/opensuse/busybox:latest
+
+LABEL org.opencontainers.image.licenses "CC-BY-NC-4.0 AND GPL-2.0-or-later"
+"""
+        )
+    run_cmd(
+        f"buildah bud --layers -t busybox_multiple_labels_test -f {dockerfile_path}",
+        tempdir,
+    )
+    run_cmd(
+        f"skopeo copy containers-storage:localhost/busybox_multiple_labels_test docker-archive:/{busybox_with_multiple_labels_tar}",
+        tempdir,
+    )
+
+    return busybox_tar, busybox_with_single_label_tar, busybox_with_multiple_labels_tar
+
+
+if __name__ == "__main__":
+
+    with TemporaryDirectory() as tmp:
+        (
+            busybox_tar,
+            busybox_with_single_labels_tar,
+            busybox_with_multiple_labels_tar,
+        ) = prepare_container_archives(tmp)
+
+        without_labels = ContainerTest(
+            files={
+                "KIWI/tumbleweed.packages": TUMBLEWEED_BUSYBOX_DOT_PACKAGES,
+                "KIWI/busybox.tar": busybox_tar,
+                "KIWI-docker/busybox.tar.sha256": "",
+                "KIWI/busybox.tar.sha256": "",
+            },
+            container_archive=Path("KIWI/busybox.tar"),
+            expected_licenses="Apache-2.0 AND (BSD-2-Clause AND LGPL-2.1-or-later AND BSD-3-Clause AND SUSE-Public-Domain) AND BSD-3-Clause AND GPL-2.0-or-later AND (GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0) AND LGPL-2.1-or-later AND MIT AND SUSE-Public-Domain",
+        )
+        with_labels = ContainerTest(
+            files={
+                "DOCKER/tumbleweed.packages": TUMBLEWEED_BUSYBOX_DOT_PACKAGES,
+                "DOCKER/busybox.tar": busybox_with_single_labels_tar,
+                "DOCKER/busybox.tar.sha256": "",
+                "DOCKER/busybox.basepackages": "",
+            },
+            container_archive=Path("DOCKER/busybox.tar"),
+            expected_licenses="CC-BY-NC-4.0",
+        )
+        take_labels_from_base = ContainerTest(
+            files={
+                "DOCKER/tumbleweed.packages": TUMBLEWEED_BUSYBOX_DOT_PACKAGES,
+                "DOCKER/busybox.tar": busybox_with_single_labels_tar,
+                "SOURCES/container-license-generator.json": """
+{"inheritLabel": true}
+""",
+            },
+            expected_licenses="Apache-2.0 AND (BSD-2-Clause AND LGPL-2.1-or-later AND BSD-3-Clause AND SUSE-Public-Domain) AND BSD-3-Clause AND GPL-2.0-or-later AND (GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0) AND LGPL-2.1-or-later AND MIT AND SUSE-Public-Domain AND CC-BY-NC-4.0",
+            container_archive=Path("DOCKER/busybox.tar"),
+        )
+        take_labels_from_base_multiple = ContainerTest(
+            files={
+                "DOCKER/tumbleweed.packages": TUMBLEWEED_BUSYBOX_DOT_PACKAGES,
+                "DOCKER/busybox.tar": busybox_with_multiple_labels_tar,
+                "SOURCES/container-license-generator.json": """
+{"inheritLabel": true}
+""",
+            },
+            expected_licenses="Apache-2.0 AND (BSD-2-Clause AND LGPL-2.1-or-later AND BSD-3-Clause AND SUSE-Public-Domain) AND BSD-3-Clause AND GPL-2.0-or-later AND (GPL-2.0-or-later AND LGPL-2.1-or-later AND LGPL-2.1-or-later WITH GCC-exception-2.0) AND LGPL-2.1-or-later AND MIT AND SUSE-Public-Domain AND (CC-BY-NC-4.0 AND GPL-2.0-or-later)",
+            container_archive=Path("DOCKER/busybox.tar"),
+        )
+
+        all_tests = [
+            with_labels,
+            without_labels,
+            take_labels_from_base,
+            take_labels_from_base_multiple,
+        ]
+
+        try:
+            for test in all_tests:
+                test.run_test()
+        finally:
+            for test in all_tests:
+                test.cleanup()
