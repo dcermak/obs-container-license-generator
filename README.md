@@ -1,7 +1,7 @@
-# obs-containers-licenses
+# container-license-generator
 
 This is a small script that can be inserted as a post build hook into a
-container build on the [Open Build Service](https://openbuildservice.org/). It
+container build in the [Open Build Service](https://openbuildservice.org/). It
 collects the licenses of every package in the container image and populates the
 container label
 [`org.opencontainers.image.licenses`](https://github.com/opencontainers/image-spec/blob/main/annotations.md#pre-defined-annotation-keys)
@@ -15,18 +15,18 @@ value, provided that:
 ## Usage
 
 1. Create a new package in the project where you will be building the container
-   images called `containers-licenses`.
+   images called `container-license-generator`.
 
-2. Copy the `containers-licenses` and `containers-licenses.spec` into the
+2. Copy the `container-license-generator` and `container-license-generator.spec` into the
    package and commit the package. Alternatively you can also use the following
    `_service` file to automate this process:
 ```xml
 <services>
   <service name="obs_scm">
-    <param name="url">https://github.com/dcermak/obs-containers-licenses.git</param>
+    <param name="url">https://github.com/dcermak/container-license-generator.git</param>
     <param name="scm">git</param>
-    <param name="extract">containers-licenses</param>
-    <param name="extract">containers-licenses.spec</param>
+    <param name="extract">container-license-generator</param>
+    <param name="extract">container-license-generator.spec</param>
     <param name="exclude">root</param>
     <param name="revision">main</param>
   </service>
@@ -36,7 +36,7 @@ value, provided that:
 3. Add the following line to your project configuration (you probably want to
    add it only to the repository where you build your containers):
 ```
-Preinstall: containers-licenses
+Preinstall: container-license-generator
 ```
 
 4. Build/Rebuild your container images.

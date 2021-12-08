@@ -16,10 +16,10 @@
 #
 
 
-Name:           containers-licenses
+Name:           container-license-generator
 Version:        0.1
 Release:        0
-Summary:        Service for substituting the licenses into a container label
+Summary:        Service for inserting the licenses into a container label
 License:        GPL-3.0-or-later
 URL:            https://github.com/dcermak/obs-%{name}
 Source0:        %{name}

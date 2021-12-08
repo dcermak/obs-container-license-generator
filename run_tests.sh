@@ -28,7 +28,7 @@ function cleanup {
 function run_test_without_label() {
     pushd /tmp/test
 
-    $1/containers-licenses
+    $1/container-license-generator
 
     LABELS=$(skopeo inspect docker-archive:/tmp/test/KIWI/busybox.tar | jq ' .Labels["org.opencontainers.image.licenses"]')
     if [[ "${LABELS}" =~ pubkey ]]; then
@@ -44,7 +44,7 @@ function run_test_without_label() {
 function run_test_with_label() {
     pushd /tmp/test_with_label
 
-    $1/containers-licenses
+    $1/container-license-generator
 
     LABELS=$(skopeo inspect docker-archive:/tmp/test_with_label/DOCKER/busybox_with_label.tar | jq ' .Labels["org.opencontainers.image.licenses"]')
     [[ "${LABELS}"  = "\"there's an entry already\"" ]] || (echo "got unexpected label ${LABELS}"; exit 1)
