@@ -2,6 +2,17 @@
 
 set -eoux pipefail
 
+# The user can override the behavior whether existing labels should be added or
+# whether the script should do nothing if the
+# 'org.opencontainers.image.licenses' label is set
+INHERIT_EXISTING_LABEL=0
+CONFIG_FILE=$(find . -wholename '*SOURCES/container-license-generator.json')
+if [[ ${CONFIG_FILE} != "" ]]; then
+    if [[ $(jq '.inheritLabel' < "${CONFIG_FILE}") = "true" ]]; then
+        INHERIT_EXISTING_LABEL=1
+    fi
+fi
+echo $INHERIT_EXISTING_LABEL
 # the build results including the .tar image of the container are either in the
 # KIWI or DOCKER directory, but we must search for this explicitly, because kiwi
 # builds also create a tar.xz file in the KIWI-docker subdir
@@ -12,21 +23,26 @@ fi
 RES_DIR=$(dirname "${PACKAGES_FILE}")
 CONTAINER=$(ls "${RES_DIR}"/*.tar)
 
-# if the container image already has the 'org.opencontainers.image.licenses' set
-# to something, then we will just exit and assume they know what they are doing
-EXISTING_LICENSE_LABEL=$(skopeo inspect docker-archive:"${CONTAINER}"| jq ' .Labels["org.opencontainers.image.licenses"] ')
-if [[ "${EXISTING_LICENSE_LABEL}" != "null" ]]; then
-    echo "org.opencontainers.image.licenses label already present: ${EXISTING_LICENSE_LABEL}"
-    echo "Not modifying it"
-    exit 0
-fi
-
 # the .packages file has the following lines:
 # busybox-adduser|(none)|1.34.1|19.6|noarch|obs://build.opensuse.org/openSUSE:Factory/standard/6821beec79e980978d3097e149416c90-busybox-links|GPL-2.0-or-later
 # => the license is the last entry
 # => collect all of them, get the unique list and store it in an array
 # omit lines that are just a "pubkey" entry, these are the invalid licenses from the public keys
 readarray -t licenses <<<"$(cat "${RES_DIR}"/*.packages|awk -F'|' '{print $7}'|sed -e '/^pubkey$/d' -e '/^$/d'|sort|uniq)"
+
+# if the container image already has the 'org.opencontainers.image.licenses' set
+# to something, then do as the user configured: nothing by default or AND it to
+# the rest
+EXISTING_LICENSE_LABEL=$(skopeo inspect docker-archive:"${CONTAINER}"| jq -r ' .Labels["org.opencontainers.image.licenses"] ')
+if [[ "${EXISTING_LICENSE_LABEL}" != "null" ]]; then
+    if [[ "${INHERIT_EXISTING_LABEL}" = "1" ]]; then
+        licenses+=("${EXISTING_LICENSE_LABEL}")
+    else
+        echo "org.opencontainers.image.licenses label already present: ${EXISTING_LICENSE_LABEL}"
+        echo "Not modifying it"
+        exit 0
+    fi
+fi
 
 # actual number of licenses
 len="${#licenses[@]}"
